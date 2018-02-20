@@ -2,12 +2,20 @@
 # Using non-tropical and tropical bird sister species pairs to investigate latitudinal variation in clutch size.
 # Code was tested using R 3.2.3 on 15 Feb 2018.
 
-# Clear workspace and load dataset
+# Clear workspace and set working directory
 rm(list=ls())
+setwd("C:/Users/Connor/Documents/Masters Work/Mini Project")
+
+# Load dataset
 project<-read.csv("bird_sister_species_data.csv", stringsAsFactors=FALSE)
 
 # Run a paired t-test (main result in report)
-with(project, t.test(nontropical_litter_or_clutch_size_n, tropical_litter_or_clutch_size_n, paired = TRUE))
+ttest<-with(project, t.test(nontropical_litter_or_clutch_size_n, tropical_litter_or_clutch_size_n, paired = TRUE))
+ttest
+
+# Save t-test ouput as a text file for reference
+ttest_output<-capture.output(print(ttest))
+writeLines(ttest_output, con = file("ttest_output.txt"))
 
 # Create a dataframe for non-tropical and tropical clutch sizes
 nontropical_clutch<-project$nontropical_litter_or_clutch_size_n
@@ -17,22 +25,50 @@ df<-data.frame(values = c(nontropical_clutch, tropical_clutch), tropical = rep(c
 # Plot this dataframe to visualise the t-test output
 install.packages("ggplot2")
 library(ggplot2)
-ggplot(data=df, aes(x=values, group=tropical, fill=tropical)) + geom_histogram() + labs(x="Clutch size", y="Density") + theme_classic() + scale_x_continuous(breaks=c(0, 2, 4, 6, 8, 10, 12, 14)) + scale_y_continuous(breaks=c(0, 5, 10, 15, 20, 25)) + theme(legend.title = element_blank())
+clutch_density<-ggplot(data=df, aes(x=values, group=tropical, fill=tropical)) + geom_histogram() + labs(x="Clutch size", y="Density") + theme_classic() + scale_x_continuous(breaks=c(0, 2, 4, 6, 8, 10, 12, 14)) + scale_y_continuous(breaks=c(0, 5, 10, 15, 20, 25)) + theme(legend.title = element_blank())
+plot(clutch_density)
 
-# Run collinearity analysis plots
-pairs(project)
-
-# Further investigate any pairs with high collinearity and remove them from analysis
-cor(multreg_complete$meanlogegg_mass, multreg_complete$meanlogbodymass)
-# collinearity = 0.98 so remove one
+# Save this plot as a pdf
+ggsave("clutch_density.pdf")
 
 # Run multiple regression
+install.packages("dplyr")
 require(dplyr)
 
 # For diet, use a categorical classification: is either of the pair carnivorous or omnivorous?
 # For migratory status, use a categorical classification: is either of the pair partial or obligate migrant?
 predtypes <- c('Invertebrate','Omnivore','VertFishScav')
-multregdat <- project %>% mutate(interann_temp = nontropical_interannual_var_temp - tropical_interannual_var_temp,
+multregdat <- project %>% mutate(spatial_temp = nontropical_spatial_cv_temp - tropical_spatial_cv_temp,
+                                     interann_temp = nontropical_interannual_var_temp - tropical_interannual_var_temp,
+                                     spatial_precip = nontropical_spatial_cv_precip - tropical_spatial_cv_precip,
+                                     interann_precip = nontropical_interannual_var_precip - tropical_interannual_var_precip,
+                                     rangesize = log10(nontropical_range_size) - log10(tropical_range_size),
+                                     total_richness = nontropical_total_richness - tropical_total_richness,
+                                     congener_richness = nontropical_congener_richness - tropical_congener_richness,
+                                     n_pop = nontropical_nsubpop - tropical_nsubpop,
+                                     elev_cv = nontropical_elevation_cv - tropical_elevation_cv,
+                                     seasonal_temp = nontropical_seasonal_var_temp - tropical_seasonal_var_temp,
+                                     seasonal_precip = nontropical_seasonal_var_precip, tropical_seasonal_var_precip,
+                                     area = log10(nontropical_area + 1) - log10(tropical_area + 1),
+                                     meanlogbodymass = apply(cbind(log10(nontropical_BodyMass.Value), log10(tropical_BodyMass.Value)), 1, mean),
+                                     predator = nontropical_Diet.5Cat %in% predtypes | tropical_Diet.5Cat %in% predtypes,
+                                     migrant = nontropical_migrant_status %in% c('partial','obligate') | tropical_migrant_status %in% c('partial','obligate'),
+                                     dist_phylo = dist_phy,
+                                     dcv = nontropical_cv_logmass - tropical_cv_logmass) %>%
+  dplyr::select(dcv, dlat, dist_phylo, dist_slc, spatial_temp, interann_temp, spatial_precip, interann_precip, rangesize, total_richness, congener_richness, n_pop, elev_cv, seasonal_temp, seasonal_precip, area, meanlogbodymass, predator, migrant) 
+multreg_complete <- filter(multregdat, complete.cases(multregdat)) %>% as.data.frame
+
+# Run collinearity analysis plots
+pairs(multreg_complete)
+
+# Further investigate any pairs with high collinearity and remove them from analysis
+cor(multreg_complete$meanlogegg_mass, multreg_complete$meanlogbodymass)
+# collinearity = 0.98 so remove one
+cor(multreg_complete$interann_temp, multreg_complete$seasonal_temp) 
+# collinearity = 0.87 so remove one
+
+# Run reduced multiple regression
+reducedmultregdat <- project %>% mutate(interann_temp = nontropical_interannual_var_temp - tropical_interannual_var_temp,
                                  elev_cv = nontropical_elevation_cv - tropical_elevation_cv,
                                  predator = nontropical_Diet.5Cat %in% predtypes | tropical_Diet.5Cat %in% predtypes,
                                  migrant = nontropical_migrant_status %in% c('partial','obligate') | tropical_migrant_status %in% c('partial','obligate'),
@@ -42,15 +78,15 @@ multregdat <- project %>% mutate(interann_temp = nontropical_interannual_var_tem
                                  meanlogegg_mass = apply(cbind(log10(nontropical_egg_mass_g), log10(tropical_egg_mass_g)), 1, mean),
                                  clutch_size_diff = clutch_size_diff) %>%
   dplyr::select(interann_precip, meanlogegg_mass, clutch_size_diff, lat, dist_phylo, interann_temp, elev_cv, predator, migrant) 
-multreg_complete <- filter(multregdat, complete.cases(multregdat)) %>% as.data.frame
+reducedmultreg_complete <- filter(reducedmultregdat, complete.cases(reducedmultregdat)) %>% as.data.frame
 
 # Backward stepwise model selection using AIC
 install.packages("MASS")
 require(MASS)
 install.packages("MuMIn")
 require(MuMIn)
-min_model <- lm(clutch_size_diff ~ 1, data = multreg_complete)
-full_model <- lm(clutch_size_diff ~ interann_precip + lat + meanlogegg_mass + interann_temp + dist_phylo + elev_cv + predator + migrant,  data = multreg_complete)
+min_model <- lm(clutch_size_diff ~ 1, data = reducedmultreg_complete)
+full_model <- lm(clutch_size_diff ~ interann_precip + lat + meanlogegg_mass + interann_temp + dist_phylo + elev_cv + predator + migrant,  data = reducedmultreg_complete)
 min_model_formula <- formula(min_model)
 aic_step_result <- stepAIC(full_model, direction = 'backward', scope = min_model_formula)
 
@@ -62,12 +98,22 @@ best_model_data <- multreg_complete %>%
             predator = predator)
 best_model_std <- lm(clutch_size_diff ~ meanlogegg_mass + interann_temp + predator, data = best_model_data)
 
-# Plot the model output for normality
+# Plot the best model output for normality
 plot(best_model_std)
 
-# Plot the model summary
+# Plot the best model summary
 summary(best_model_std)
 
+# Save linear regression summary output as a text file for reference
+best_model_output<-capture.output(print(summary(best_model_std)))
+writeLines(best_model_output, con = file("best_model_output.txt"))
+
 # Plot significant variables graphically
-ggplot(data=best_model_data, aes(x=interann_temp, y=clutch_size_diff)) + geom_point() + geom_smooth(method="lm", se=FALSE) + labs(x="Interannual temperature difference (CV)", y="Clutch size difference") + scale_x_continuous(breaks=c(-0.5, 0, 0.5, 0, 1, 1.5, 2, 2.5, 3, 3.5)) + theme_classic()
-ggplot(data=best_model_data, aes(x=meanlogegg_mass, y=clutch_size_diff)) + geom_point() + geom_smooth(method="lm", se=FALSE) + labs(x="log(Mean egg mass)", y="Clutch size difference") + theme_classic()
+clutch_temp<-ggplot(data=best_model_data, aes(x=interann_temp, y=clutch_size_diff)) + geom_point() + geom_smooth(method="lm", se=FALSE) + labs(x="Interannual temperature difference (CV)", y="Clutch size difference") + scale_x_continuous(breaks=c(-0.5, 0, 0.5, 0, 1, 1.5, 2, 2.5, 3, 3.5)) + theme_classic()
+clutch_eggmass<-ggplot(data=best_model_data, aes(x=meanlogegg_mass, y=clutch_size_diff)) + geom_point() + geom_smooth(method="lm", se=FALSE) + labs(x="log(Mean egg mass)", y="Clutch size difference") + theme_classic()
+plot(clutch_temp)
+plot(clutch_eggmass)
+
+# Save these plots as a pdf
+ggsave("clutch_temp.pdf")
+ggsave("clutch_eggmass.pdf")
