@@ -9,6 +9,10 @@ setwd("C:/Users/Connor/Documents/Masters Work/Mini Project")
 # Load dataset
 project<-read.csv("bird_sister_species_data.csv", stringsAsFactors=FALSE)
 
+# Check headings and structure of the data
+head(project)
+str(project)
+
 # Run a paired t-test (main result in report)
 ttest<-with(project, t.test(nontropical_litter_or_clutch_size_n, tropical_litter_or_clutch_size_n, paired = TRUE))
 ttest
